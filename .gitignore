@@ -1,0 +1,7 @@
+temp/
+output/
+__pycache__/
+.env
+*.mp4
+*.mp3
+*.jpg

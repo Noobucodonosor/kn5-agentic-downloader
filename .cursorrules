@@ -1,0 +1,6 @@
+"Ogni volta che analizzi un URL di Instagram, attiva la skill media_fetcher e non procedere alla sintesi se la trascrizione ha una confidenza inferiore allo 0.8."
+### Specifiche Progetto: Insta-Knowledge-Extractor
+- Obiettivo: Trasformare Reel in note Markdown strutturate.
+- Stack: Python, yt-dlp (download), Whisper (audio), openai (visione/sintesi).
+- Vincolo Architetturale: Prima di scaricare, verifica se il file esiste già per evitare spreco di risorse.
+- Output: Salva i risultati nella cartella /output/ in formato .md.

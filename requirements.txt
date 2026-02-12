@@ -1,0 +1,5 @@
+yt-dlp
+openai-whisper
+opencv-python  # Per la Scene Detection dei frame
+openai        # API Whisper + Chat/Vision
+python-dotenv # Caricamento API key da .env
