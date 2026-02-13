@@ -88,14 +88,17 @@ def print_cost_log(
     usage: dict,
     model: str = "gpt-4o",
 ):
-    """Stampa stima token e costi API."""
+    """Stampa stima token e costi API. Whisper solo se audio processato (whisper_minutes > 0)."""
     cost_whisper = whisper_minutes * WHISPER_USD_PER_MINUTE
     pt = usage.get("prompt_tokens", 0)
     ct = usage.get("completion_tokens", 0)
     total = usage.get("total_tokens", pt + ct)
 
     print("\n--- Logging di costo (stima) ---")
-    print(f"Whisper: ~{whisper_minutes:.2f} min → ~${cost_whisper:.4f}")
+    if whisper_minutes > 0:
+        print(f"Whisper: ~{whisper_minutes:.2f} min → ~${cost_whisper:.4f}")
+    else:
+        print("Whisper: non usato (nessun audio)")
     print(f"Chat ({model}): {pt} input, {ct} output, {total} total token")
     cost_input = (pt / 1_000_000) * GPT4O_USD_PER_1M_INPUT
     cost_output = (ct / 1_000_000) * GPT4O_USD_PER_1M_OUTPUT
@@ -138,20 +141,30 @@ def main():
         print(f"Errore download: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("Video scaricato con successo")
+    media_type = result.get("media_type", "video")
+    assets = result["assets"]
+    audio_path = result.get("audio_path")
 
-    video_path = result["video_path"]
-    audio_path = result["audio_path"]
+    print(f"Contenuto scaricato con successo (tipo: {media_type}, asset: {len(assets)})")
 
-    try:
-        frame_paths = processor.extract_frames(video_path)
-    except VisionProcessorError as e:
-        print(f"Errore estrazione frame: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Gestione frame: video → extract_frames; immagini → aggiungi a all_frames
+    all_frames = []
+    video_exts = {".mp4", ".mov"}
+    image_exts = {".jpg", ".jpeg", ".png"}
+    for asset in assets:
+        suf = Path(asset).suffix.lower()
+        if suf in video_exts:
+            try:
+                frames = processor.extract_frames(asset)
+                all_frames.extend(frames)
+            except VisionProcessorError as e:
+                print(f"Errore estrazione frame da {asset}: {e}", file=sys.stderr)
+        elif suf in image_exts:
+            all_frames.append(asset)
 
-    print(f"Numero di frame estratti: {len(frame_paths)}")
+    print(f"Numero di frame/immagini: {len(all_frames)}")
     print("Percorso dei file:")
-    for p in frame_paths:
+    for p in all_frames:
         print(f"  {p}")
 
     try:
@@ -160,16 +173,19 @@ def main():
         print(f"Errore configurazione: {e}", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        transcription = synthesizer.transcribe_audio(audio_path)
-    except TranscriptionError as e:
-        print(f"Errore trascrizione: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Trascrizione condizionale
+    if audio_path:
+        try:
+            transcription = synthesizer.transcribe_audio(audio_path)
+        except TranscriptionError as e:
+            print(f"Errore trascrizione: {e}", file=sys.stderr)
+            sys.exit(1)
+        print("Trascrizione completata")
+    else:
+        transcription = "Nessun audio disponibile per questo post."
 
-    print("Trascrizione completata")
-
     try:
-        notes, usage = synthesizer.generate_notes(transcription, frame_paths)
+        notes, usage = synthesizer.generate_notes(transcription, all_frames)
     except NotesGenerationError as e:
         print(f"Errore generazione note: {e}", file=sys.stderr)
         sys.exit(1)
@@ -179,7 +195,8 @@ def main():
     out_path.write_text(notes, encoding="utf-8")
     print(f"Note salvate in: {out_path.resolve()}")
 
-    whisper_min = estimate_audio_minutes(audio_path)
+    # Costi: Whisper solo se l'audio è stato effettivamente processato
+    whisper_min = estimate_audio_minutes(audio_path) if audio_path else 0.0
     print_cost_log(whisper_min, usage)
 
 

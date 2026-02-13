@@ -1,4 +1,5 @@
 yt-dlp
+instaloader
 openai-whisper
 opencv-python  # Per la Scene Detection dei frame
 openai        # API Whisper + Chat/Vision
