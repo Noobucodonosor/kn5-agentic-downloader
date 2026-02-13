@@ -7,12 +7,16 @@ URL da riga di comando o variabile d'ambiente REEL_URL.
 """
 
 import argparse
+import hashlib
+import logging
 import os
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from src.skills.media_fetcher import (
     MediaFetcher,
@@ -81,6 +85,76 @@ def estimate_audio_minutes(audio_path: str) -> float:
     size_mb = p.stat().st_size / (1024 * 1024)
     # 128 kbps ≈ 0.96 MB/min
     return size_mb / 0.96 if size_mb > 0 else 0.0
+
+
+def _session_key(url: str) -> str:
+    """Stesso identificatore usato da MediaFetcher per video/frame (hash URL)."""
+    return hashlib.sha256(url.encode()).hexdigest()[:16]
+
+
+def request_cleanup(
+    url: str,
+    all_frames: List[str],
+    output_generated: bool,
+    temp_video: str = TEMP_VIDEO,
+    temp_frames: str = TEMP_FRAMES,
+) -> None:
+    """
+    Chiede all'utente se eliminare i file temporanei del processo corrente.
+    Eseguita solo se output_generated è True. Elimina solo video/frame di questo run.
+    """
+    if not output_generated:
+        return
+    key = _session_key(url)
+    video_dir = Path(temp_video)
+    frames_dir = Path(temp_frames)
+
+    try:
+        answer = input(
+            "Vuoi eliminare i file temporanei (video e frame) scaricati? (s/n): "
+        ).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        logger.info("Input annullato, file temporanei conservati")
+        return
+
+    if answer == "s":
+        removed = 0
+        # Cartella temp/video/{key}/ (carousel) o file temp/video/{key}.*
+        key_dir = video_dir / key
+        if key_dir.is_dir():
+            for f in key_dir.iterdir():
+                try:
+                    f.unlink()
+                    removed += 1
+                except OSError as e:
+                    logger.warning("Impossibile eliminare %s: %s", f, e)
+            try:
+                key_dir.rmdir()
+                removed += 1
+            except OSError as e:
+                logger.warning("Impossibile rimuovere directory %s: %s", key_dir, e)
+        for f in video_dir.glob(f"{key}.*"):
+            try:
+                f.unlink()
+                removed += 1
+            except OSError as e:
+                logger.warning("Impossibile eliminare %s: %s", f, e)
+        # Frame: solo quelli generati in questo run (all_frames)
+        for p in all_frames:
+            path = Path(p)
+            if path.is_file():
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError as e:
+                    logger.warning("Impossibile eliminare %s: %s", path, e)
+        logger.info("Pulizia completata: eliminati %d file/directory", removed)
+        print("File temporanei eliminati.")
+    else:
+        path_video = video_dir.resolve()
+        path_frames = frames_dir.resolve()
+        logger.info("File conservati in %s e %s", path_video, path_frames)
+        print(f"File conservati in {path_video} e {path_frames}")
 
 
 def print_cost_log(
@@ -199,6 +273,10 @@ def main():
     whisper_min = estimate_audio_minutes(audio_path) if audio_path else 0.0
     print_cost_log(whisper_min, usage)
 
+    # Pulizia interattiva solo se l'output è stato generato con successo
+    request_cleanup(url, all_frames, output_generated=True)
+
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     main()
